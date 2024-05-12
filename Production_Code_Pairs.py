@@ -21,7 +21,7 @@ class CryptoDataFetcher:
     def _fetch_data(self, start_timestamp: int, end_timestamp: int) -> pd.DataFrame:
         klines = []
         current_start_timestamp = start_timestamp
-        current_end_timestamp = start_timestamp + self.limit * 60000  # 1 minute in milliseconds
+        current_end_timestamp = start_timestamp + self.limit * 60000
 
         while current_start_timestamp < end_timestamp:
             if current_end_timestamp > end_timestamp:
@@ -226,7 +226,7 @@ class PairTradingStrategy:
         # plt.tight_layout()
         # plt.savefig('BTC_ETH.png')
         plt.show()
-        PnL_df.to_excel("Trading_Data.xlsx")
+        PnL_df.to_excel("log.xlsx")
 
 btc_fetcher = CryptoDataFetcher('BTCUSDT')
 eth_fetcher = CryptoDataFetcher('ETHUSDT')
@@ -238,9 +238,7 @@ eth_data['Date'] = pd.to_datetime(eth_data['Date'])
 btc_data = btc_data.rename(columns={'Open time': 'Date', 'Close': 'BTC'})
 eth_data = eth_data.rename(columns={'Open time': 'Date', 'Close': 'ETH'})
 merged_data=pd.merge(btc_data,eth_data,on='Date',how='left').dropna()
-# merged_data = merged_data[merged_data['Date'] > pd.to_datetime('2022-01-01')]
 merged_data=merged_data.set_index('Date')
-# strategy = PairTradingStrategy(merged_data[-100000:], 1.5, 2000, 400,30,53,37)
 strategy = PairTradingStrategy(merged_data[-100000:], 1, 28800, 7200,60*12,50.5,49.5)
 strategy.execute_strategy()
 strategy.visualize_strategy()
