@@ -253,7 +253,6 @@ class Portfolio:
             figures.append(fig)
         return figures
     
-
 def create_dashboard(app, portfolio):
     app.layout = dbc.Container([
         dbc.Row([
@@ -288,7 +287,7 @@ def create_dashboard(app, portfolio):
                         fill_color='darkblue',
                         font=dict(color='white'),
                         align='left'),
-            cells=dict(values=[df[col] for col in df.columns],
+            cells=dict(values=[df[col].tolist() for col in df.columns],  # Correctly setting the values
                        fill_color='white',
                        align='left'))
         ])
@@ -306,7 +305,7 @@ def create_dashboard(app, portfolio):
                         fill_color='darkblue',
                         font=dict(color='white'),
                         align='left'),
-            cells=dict(values=[df[col] for col in df.columns],
+            cells=dict(values=[df[col].tolist() for col in df.columns],  # Correctly setting the values
                        fill_color='white',
                        align='left'))
         ])
@@ -335,11 +334,10 @@ def main():
 
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
     create_dashboard(app, portfolio)
-
-    # Allow time for data fetching
-    portfolio.ib_app.disconnect
+    portfolio.ib_app.disconnect()
     app.run_server(debug=True)
 
 if __name__ == "__main__":
     main()
+
         
