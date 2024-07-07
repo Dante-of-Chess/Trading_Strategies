@@ -13,6 +13,7 @@ from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 import ta
 import datetime
+import dash_table
 from pandas.tseries.offsets import BDay
 from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
@@ -48,20 +49,20 @@ class IBApp(EWrapper, EClient):
 class Portfolio:
     def __init__(self):
         self.ib_app = IBApp(self)
-        self.portfolio_df = pd.DataFrame(columns=["symbol", "position", "market_price", "average_cost",'unrealizedPNL','realizedPNL'])
+        self.portfolio_df = pd.DataFrame(columns=["Symbol", "Position Size", "Market Price", "Average Entry Price",'Unrealized PnL','Realized PnL'])
         self.total_market_value = 0.0
         self.holidays=['2024-12-31']
     def update_investment(self, contract, position, market_price, average_cost,marketValue,unrealizedPNL,realizedPNL):
         self.total_market_value += marketValue
         new_data = {
-            "symbol": contract.symbol,
-            "position": np.round(position,2),
-            "market_price": np.round(market_price,3),
-            "average_cost": np.round(average_cost,3),
-            "market_value": np.round(marketValue,3),
-            "portfolio_weight": np.round(marketValue / self.total_market_value,3),
-            "unrealizedPNL": unrealizedPNL,
-            "realizedPNL": realizedPNL,
+            "Symbol": contract.symbol,
+            "Position Size": np.round(position,2),
+            "Market Price": np.round(market_price,3),
+            "Average Entry Price": np.round(average_cost,3),
+            "Market Value": np.round(marketValue,3),
+            "Share of Portfolio": np.round(marketValue / self.total_market_value,3),
+            "Unrealized PnL": unrealizedPNL,
+            "Realized PnL": realizedPNL,
 
         }
 
@@ -69,8 +70,8 @@ class Portfolio:
         self.portfolio_df = pd.concat([self.portfolio_df, new_row], ignore_index=True)
 
         # Update portfolio weights
-        self.portfolio_df["portfolio_weight"] = np.round(self.portfolio_df["market_value"] / self.portfolio_df["market_value"].sum()*100,2)
-        self.portfolio_df=self.portfolio_df.sort_values(by="portfolio_weight",ascending=False)
+        self.portfolio_df["Share of Portfolio"] = np.round(self.portfolio_df["Market Value"] / self.portfolio_df["Market Value"].sum()*100,2)
+        self.portfolio_df=self.portfolio_df.sort_values(by="Share of Portfolio",ascending=False)
         self.portfolio_df=np.round(self.portfolio_df,2)
 
     def display_portfolio(self):
@@ -91,8 +92,8 @@ class Portfolio:
         portfolio_std= np.sqrt(weights.T@cov_matrix@ weights)*np.sqrt(days)
         return portfolio_mean,portfolio_std
     def Returns(self):
-        self.tickers=self.portfolio_df.symbol.unique().tolist()
-        weights=np.array(self.portfolio_df.portfolio_weight)/100
+        self.tickers=self.portfolio_df.Symbol.unique().tolist()
+        weights=np.array(self.portfolio_df["Share of Portfolio"])/100
         prices_data=self.Historical_data(self.tickers)
         prices_data=prices_data[252:]
         prices_data=prices_data.dropna()
@@ -201,14 +202,15 @@ class Portfolio:
     
     def Portfolio_log(self):
         data=self.portfolio_df
+        print(data)
         Historical_VaR,Parametric_VaR=self.Portfolio_Risk()
         log=pd.read_excel("Portfolio_Log.xlsx")
         daily_log={
             "Date":datetime.datetime.today().date(),
-            "Market_Value": np.round(data.market_value.sum(),3),
-            "Average_Cost": np.round((data.average_cost*data.position).sum(),3),
-            "Unrealized PnL":np.round(data.unrealizedPNL.sum(),3),
-            "Realized PnL":np.round(data.realizedPNL.sum(),3),
+            "Market Value": np.round(data['Market Value'].sum(),3),
+            "Average Entry Price": np.round((data["Average Entry Price"]*data['Position Size']).sum(),3),
+            "Unrealized PnL":np.round(data["Unrealized PnL"].sum(),3),
+            "Realized PnL":np.round(data["Realized PnL"].sum(),3),
             "Historical_VaR":Historical_VaR,
             "Parametric_VaR":Parametric_VaR
             }
@@ -222,11 +224,10 @@ class Portfolio:
         summary['Date']=summary['Date'].dt.strftime('%Y-%m-%d')
         summary.iloc[:,1:]=np.round(summary.iloc[:,1:],2)
         summary.to_excel("Portfolio_Log.xlsx",index=False)
-        print(summary)
         return summary
     
     def Technical_indicators(self):
-        self.tickers=self.portfolio_df.symbol.unique().tolist()
+        self.tickers=self.portfolio_df.Symbol.unique().tolist()
         prices_data=self.Historical_data(self.tickers)
         prices_data=prices_data.sort_index()
         for i in prices_data.columns:
@@ -253,64 +254,125 @@ class Portfolio:
             figures.append(fig)
         return figures
     
+
 def create_dashboard(app, portfolio):
     app.layout = dbc.Container([
+        dbc.Navbar(
+            dbc.Container([
+                dbc.NavbarBrand("Portfolio Dashboard", className="mx-auto")
+            ]),
+            color="dark",
+            dark=True,
+        ),
+
+        html.Br(),
         dbc.Row([
             dbc.Col([
-                html.H2("Current Portfolio"),
-                dcc.Graph(id='current-portfolio')
-            ]),
+                dbc.Card([
+                    dbc.CardHeader(html.H2("Current Portfolio")),
+                    dbc.CardBody(dash_table.DataTable(
+                        id='current-portfolio',
+                        columns=[{"name": i, "id": i} for i in portfolio.display_portfolio().columns],
+                        data=portfolio.display_portfolio().to_dict('records') + [{
+                            'Symbol': 'Grand Total',
+                            'Position Size': '',
+                            'Market Price': '',
+                            'Average Entry Price': '',
+                            'Market Value': np.round(portfolio.display_portfolio()['Market Value'].sum(),2),
+                            'Share of Portfolio': np.round(portfolio.display_portfolio()['Share of Portfolio'].sum(),2),
+                            'Unrealized PnL': np.round(portfolio.display_portfolio()['Unrealized PnL'].sum(),2),
+                            "Realized PnL": np.round(portfolio.display_portfolio()['Realized PnL'].sum(),2)}],
+
+                        filter_action="native",
+                        sort_action="native",
+                        sort_mode="multi",
+                        page_size=20,
+                        style_table={'overflowX': 'auto'},
+                        style_header={
+                            'backgroundColor': '#272727',
+                            'fontWeight': 'bold',
+                            'color': 'white'
+                        },
+                        style_data_conditional=[
+                            {
+                                'if': {'filter_query': '{symbol} = "Grand Total"'},
+                                'backgroundColor': '#d9edf7',
+                                'fontWeight': 'bold'
+                            }
+                        ],
+                        style_cell={
+                            'backgroundColor': 'white',
+                            'color': 'black',
+                            'textAlign': 'center'
+                        }
+                    ))
+                ], className="mb-4")
+            ], width=12),
             dbc.Col([
-                html.H2("Portfolio Log"),
-                dcc.Graph(id='portfolio-log')
-            ])
+                dbc.Card([
+                    dbc.CardHeader(html.H2("Portfolio Log")),
+                    dbc.CardBody(dash_table.DataTable(
+                        id='portfolio-log',
+                        columns=[{"name": i, "id": i} for i in portfolio.Portfolio_log().columns],
+                        data=portfolio.Portfolio_log().to_dict('records'),
+                        filter_action="native",
+                        sort_action="native",
+                        sort_mode="multi",
+                        page_size=20,
+                        style_table={'overflowX': 'auto'},
+                        style_header={
+                            'backgroundColor': '#272727',
+                            'fontWeight': 'bold',
+                            'color': 'white'
+                        },
+                        style_cell={
+                            'backgroundColor': 'white',
+                            'color': 'black',
+                            'textAlign': 'center'
+                        }
+                    ))
+                ], className="mb-4")
+            ], width=12),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader(html.H3("Watchlist")),
+                    dbc.CardBody(dash_table.DataTable(
+                        id='watchlist',
+                        columns=[{"name": i, "id": i} for i in portfolio.Watch_List().columns],
+                        data=portfolio.Watch_List().to_dict('records'),
+                        filter_action="native",
+                        sort_action="native",
+                        sort_mode="multi",
+                        page_size=20,
+                        style_table={'overflowX': 'auto'},
+                        style_header={
+                            'backgroundColor': '#272727',
+                            'fontWeight': 'bold',
+                            'color': 'white'
+                        },
+                        style_cell={
+                            'backgroundColor': 'white',
+                            'color': 'black',
+                            'textAlign': 'center'
+                        }
+                    ))
+                ], className="mb-4")
+            ], width=12)
         ]),
         dbc.Row([
             dbc.Col([
-                html.H2("Technical Indicators"),
-                dcc.Dropdown(id='ticker-dropdown', multi=True, options=[
-                    {'label': ticker, 'value': ticker} for ticker in portfolio.portfolio_df["symbol"].unique()
-                ]),
-                dcc.Graph(id='indicator-plot')
-            ])
+                dbc.Card([
+                    dbc.CardHeader(html.H2("Technical Indicators")),
+                    dbc.CardBody([
+                        dcc.Dropdown(id='ticker-dropdown', multi=True, options=[
+                            {'label': ticker, 'value': ticker} for ticker in portfolio.portfolio_df["Symbol"].unique()
+                        ], placeholder="Select Tickers", style={"margin-bottom": "15px"}),
+                        dcc.Graph(id='indicator-plot')
+                    ])
+                ])
+            ], width=12)
         ])
-    ], fluid=True)  # Add fluid=True to stretch container
-
-    @app.callback(
-        Output('current-portfolio', 'figure'),
-        [Input('ticker-dropdown', 'value')]
-    )
-    def update_current_portfolio(selected_tickers):
-        df = pd.DataFrame(portfolio.display_portfolio())
-        fig = go.Figure(data=[go.Table(
-            header=dict(values=list(df.columns),
-                        fill_color='darkblue',
-                        font=dict(color='white'),
-                        align='left'),
-            cells=dict(values=[df[col].tolist() for col in df.columns],  # Correctly setting the values
-                       fill_color='white',
-                       align='left'))
-        ])
-        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))  # Stretch table
-        return fig
-
-    @app.callback(
-        Output('portfolio-log', 'figure'),
-        [Input('ticker-dropdown', 'value')]
-    )
-    def update_portfolio_log(selected_tickers):
-        df = portfolio.Portfolio_log()
-        fig = go.Figure(data=[go.Table(
-            header=dict(values=list(df.columns),
-                        fill_color='darkblue',
-                        font=dict(color='white'),
-                        align='left'),
-            cells=dict(values=[df[col].tolist() for col in df.columns],  # Correctly setting the values
-                       fill_color='white',
-                       align='left'))
-        ])
-        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))  # Stretch table
-        return fig
+    ], fluid=True)
 
     @app.callback(
         Output('indicator-plot', 'figure'),
@@ -326,6 +388,7 @@ def create_dashboard(app, portfolio):
                 if ticker in ticker_fig['layout']['title']['text']:
                     for trace in ticker_fig['data']:
                         fig.add_trace(trace)
+        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
         return fig
 
 def main():
@@ -334,10 +397,8 @@ def main():
 
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
     create_dashboard(app, portfolio)
-    portfolio.ib_app.disconnect()
     app.run_server(debug=True)
 
 if __name__ == "__main__":
     main()
-
         
