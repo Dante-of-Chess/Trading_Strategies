@@ -13,7 +13,7 @@ from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 import ta
 import datetime
-import dash_table
+from dash import dash_table
 from pandas.tseries.offsets import BDay
 from pypfopt.expected_returns import mean_historical_return
 from pypfopt.risk_models import CovarianceShrinkage
@@ -123,16 +123,18 @@ class Portfolio:
         return Historical_VaR,Parametric_VaR
     
     def Watch_List(self):
+        # data=pd.read_excel("File_To_Use.xlsx")
         data=pd.read_csv("Price_Data.csv")
         latest_date=pd.to_datetime(data.Date[0]).date()
         print(latest_date)
+        print((datetime.datetime.today()-BDay(0)).date())
         if latest_date==(datetime.datetime.today()-BDay(1)).date():
             print("Data for Watchlist is already Pulled")
             prices_data=data.copy()
             prices_data=prices_data.set_index("Date")
         else:
             print("Pulling Watchlist data")
-            prices_data=yf.download(data.columns[1:], start=latest_date)[-252:]['Adj Close']
+            prices_data=yf.download(data.columns[1:].tolist(), start=latest_date)['Adj Close']
             merged=pd.concat([data.set_index('Date'),prices_data],axis=0)
             def parse_date(date_str):
                 for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y %H:%M'):
@@ -146,20 +148,20 @@ class Portfolio:
             merged.index = merged.index.strftime('%Y-%m-%d')
             merged = merged[~merged.index.duplicated(keep='last')]
             merged=merged.sort_index(ascending=False)
-            merged.to_csv("Price_Data.csv")
+            merged.to_excel("File_To_Use.xlsx")
             prices_data=merged.copy()
 
-        start_date = (datetime.datetime.today() - pd.DateOffset(months=6)).date()
         prices_data.index=pd.to_datetime(prices_data.index)
-        prices_train = prices_data.loc[start_date:]
+        prices_train = prices_data.copy()#[-130:]
         df = prices_train.copy()
-        df = df.loc[:, ~(df < 6).any()]
+        #df = df.loc[:, ~(df < 6).any()]
+        df = df.loc[:, (df.iloc[0] / df.iloc[-1]) >= 2]
         df = df.dropna(axis=1)
         mu = expected_returns.mean_historical_return(df)
         S = risk_models.risk_matrix(df, method='ledoit_wolf')
         info=pd.read_excel('Stock List.xlsx')
         sector_info = info.set_index('Ticker')['Sector'].to_dict()
-        sector_max_allocation = {sector: 0.2 for sector in set(sector_info.values())}
+        sector_max_allocation = {sector: 0.4 for sector in set(sector_info.values())}
         sector_map = {sector: [] for sector in sector_max_allocation.keys()}
         for ticker in df.columns:
             sector = sector_info.get(ticker, None)
@@ -254,7 +256,6 @@ class Portfolio:
             figures.append(fig)
         return figures
     
-
 def create_dashboard(app, portfolio):
     app.layout = dbc.Container([
         dbc.Navbar(
@@ -336,26 +337,29 @@ def create_dashboard(app, portfolio):
             dbc.Col([
                 dbc.Card([
                     dbc.CardHeader(html.H3("Watchlist")),
-                    dbc.CardBody(dash_table.DataTable(
-                        id='watchlist',
-                        columns=[{"name": i, "id": i} for i in portfolio.Watch_List().columns],
-                        data=portfolio.Watch_List().to_dict('records'),
-                        filter_action="native",
-                        sort_action="native",
-                        sort_mode="multi",
-                        page_size=20,
-                        style_table={'overflowX': 'auto'},
-                        style_header={
-                            'backgroundColor': '#272727',
-                            'fontWeight': 'bold',
-                            'color': 'white'
-                        },
-                        style_cell={
-                            'backgroundColor': 'white',
-                            'color': 'black',
-                            'textAlign': 'center'
-                        }
-                    ))
+                    dbc.CardBody([
+                        dbc.Button("Update Watchlist", id="update-watchlist-button", color="primary", className="mb-3"),
+                        dash_table.DataTable(
+                            id='watchlist',
+                            columns=[{"name": i, "id": i} for i in ['Stock', 'Weight']],
+                            data=[],
+                            filter_action="native",
+                            sort_action="native",
+                            sort_mode="multi",
+                            page_size=20,
+                            style_table={'overflowX': 'auto'},
+                            style_header={
+                                'backgroundColor': '#272727',
+                                'fontWeight': 'bold',
+                                'color': 'white'
+                            },
+                            style_cell={
+                                'backgroundColor': 'white',
+                                'color': 'black',
+                                'textAlign': 'center'
+                            }
+                        )
+                    ])
                 ], className="mb-4")
             ], width=12)
         ]),
@@ -373,6 +377,15 @@ def create_dashboard(app, portfolio):
             ], width=12)
         ])
     ], fluid=True)
+
+    @app.callback(
+        Output('watchlist', 'data'),
+        Input('update-watchlist-button', 'n_clicks')
+    )
+    def update_watchlist(n_clicks):
+        if n_clicks:
+            return portfolio.Watch_List().to_dict('records')
+        return []
 
     @app.callback(
         Output('indicator-plot', 'figure'),
@@ -401,4 +414,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
