@@ -36,10 +36,7 @@ The pair trading strategy exploits mean-reverting tendencies between BTC and ETH
 
 ## 🔧 Requirements
 
-- Python 3.7+
-- Libraries: `pandas`, `numpy`, `matplotlib`, `requests`, `ta`, `tqdm`, `logging`
+- Python 3.12+
+- Libraries: `pandas`, `numpy`, `matplotlib`, `requests`, `ta`, `tqdm`, `logging`,`datetime`
 - Binance API access
 
-Install dependencies with:
-```bash
-pip install -r requirements.txt
